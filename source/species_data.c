@@ -1,0 +1,103 @@
+#include "species_data.h"
+#include "game_config.h"
+
+const Species SPECIES[] = {
+    {
+        .name = "Humanoids",
+        .description = "Curious two-legged builders. Good at a bit of everything, great at nothing.",
+        .start_population = 5,
+        .start_food = 20,
+        .start_science = 10,
+        .traits = {
+            { "Adaptable",  "+10% all resources", .food_bonus = 10, .science_bonus = 10, .population_bonus = 10 },
+            { "Toolmakers", "+10% science",       .science_bonus = 10 },
+        },
+        .palette = {
+            { 'h', HEX_COLOR(0x5a3a1e) },
+            { 's', HEX_COLOR(0xf4c27a) },
+            { 'e', HEX_COLOR(0x1a1030) },
+            { 't', HEX_COLOR(0x8b5a2b) },
+            { 'l', HEX_COLOR(0x5c3a1a) },
+        },
+        .sprite = {
+            "..hhhh..",
+            ".hhhhhh.",
+            ".hssssh.",
+            ".sesses.",
+            ".ssssss.",
+            "..ssss..",
+            ".tttttt.",
+            "stttttts",
+            "s.tttt.s",
+            "..tttt..",
+            "..l..l..",
+            ".ll..ll.",
+        },
+    },
+    {
+        .name = "Insectoids",
+        .description = "A buzzing hive that grows fast and works as one, but rarely stops to think.",
+        .start_population = 8,
+        .start_food = 15,
+        .start_science = 5,
+        .traits = {
+            { "Swarm",        "+25% population", .population_bonus = 25 },
+            { "Hive Mind",    "+10% food",              .food_bonus = 10 },
+            { "Simple Minds", "-10% science",           .science_bonus = -10 },
+        },
+        .palette = {
+            { 'a', HEX_COLOR(0x2a5a2a) },
+            { 'c', HEX_COLOR(0x4a8a3a) },
+            { 'd', HEX_COLOR(0x2a5a2a) },
+            { 'e', HEX_COLOR(0xff4040) },
+        },
+        .sprite = {
+            "a......a",
+            ".a....a.",
+            "..cccc..",
+            ".ecccce.",
+            ".cccccc.",
+            "..dccd..",
+            "d.cccc.d",
+            ".dcddcd.",
+            "d.cccc.d",
+            "..cddc..",
+            ".d....d.",
+            "d......d",
+        },
+    },
+    {
+        .name = "Reptilians",
+        .description = "Cold-blooded and patient. They need little food and think deeply, but breed slowly.",
+        .start_population = 4,
+        .start_food = 25,
+        .start_science = 10,
+        .traits = {
+            { "Cold Blooded",     "+20% food",              .food_bonus = 20 },
+            { "Patient Thinkers", "+20% science",           .science_bonus = 20 },
+            { "Slow Breeders",    "-15% population", .population_bonus = -15 },
+        },
+        .palette = {
+            { 'g', HEX_COLOR(0x3a9a8a) },
+            { 'd', HEX_COLOR(0x1f5a50) },
+            { 'b', HEX_COLOR(0xd8c86a) },
+            { 'e', HEX_COLOR(0xffe066) },
+        },
+        .sprite = {
+            "..dddd..",
+            ".gggggg.",
+            ".geggeg.",
+            "gggggggg",
+            ".gggggg.",
+            "..gbbg..",
+            ".ggbbgg.",
+            "g.gbbg.g",
+            "g.gbbg.g",
+            "..gggg..",
+            "..g..g..",
+            ".gg..ggg",
+        },
+    },
+};
+
+const int SPECIES_COUNT = sizeof(SPECIES) / sizeof(SPECIES[0]);

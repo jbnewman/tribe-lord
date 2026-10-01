@@ -1,0 +1,6 @@
+build/
+*.elf
+*.gba
+*.map
+*.sav
+emulator/mgba/
