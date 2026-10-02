@@ -12,7 +12,7 @@
 #include "tiles.h"
 
 #define MAP_X          4
-#define MAP_Y          22
+#define MAP_Y          38
 #define HEX_SIZE       16
 #define HEX_ROW_HEIGHT 12
 #define BAR_LEFT       98
@@ -60,6 +60,10 @@ static const char *message;
 static char message_buffer[48];
 static int frame_count;
 static int animation_step;
+static bool management_open;
+static int management_villager_index;
+static bool year_summary_open;
+static int year_summary_year;
 
 #define ANIMATION_SPEED 30   // frames between animation steps (60 frames = 1 second)
 
@@ -168,6 +172,8 @@ static void draw_hex(int row, int col)
 
 static void draw_map(void)
 {
+    m3_rect(0, MAP_Y, SCREEN_WIDTH, OFFER_Y - 1, COLOR_SKY);
+
     for (int row = 0; row < MAP_ROWS; row++) {
         for (int col = 0; col < MAP_COLS; col++) {
             draw_hex(row, col);
@@ -175,16 +181,35 @@ static void draw_map(void)
     }
 }
 
+static const char *job_name(int job)
+{
+    switch (job) {
+        case JOB_FARMER: return "Farmer";
+        case JOB_SCIENTIST: return "Scientist";
+        case JOB_BUILDER: return "Builder";
+        case JOB_GATHERER: return "Gatherer";
+        case JOB_DEFENDER: return "Defender";
+        default: return "Unassigned";
+    }
+}
+
+static const char *life_stage_name(int stage)
+{
+    switch (stage) {
+        case LIFE_STAGE_INFANT: return "Infant";
+        case LIFE_STAGE_CHILD: return "Child";
+        case LIFE_STAGE_ADULT: return "Adult";
+        default: return "Elder";
+    }
+}
+
 static void draw_status(void)
 {
-    char line[48];
-    const Age *age = &AGES[game.age];
+    char line[64];
 
     m3_rect(0, 0, SCREEN_WIDTH, MAP_Y - 1, COLOR_SKY);
 
-    snprintf(line, sizeof(line), "F %d(%+d)  S %d(+%d)  P %d/%d",
-             game.food, food_income(), game.science, science_income(), game.population, housing());
-    draw_text(2, 2, line, COLOR_TEXT, 1);
+    draw_text(2, 2, "TRIBE", COLOR_TEXT, 1);
 
     // The turn number, or a winter warning when winter is close
     COLOR season_color = COLOR_WINTER;
@@ -198,22 +223,16 @@ static void draw_status(void)
     }
     draw_text(SCREEN_WIDTH - 2 - text_width(line, 1), 2, line, season_color, 1);
 
-    draw_text(2, 12, age->name, COLOR_TITLE, 1);
+    snprintf(line, sizeof(line), "F %d(%+d)  S %d(+%d)  P %d/%d",
+             game.food, food_income(), game.science, science_income(), game.population, housing());
+    draw_text(2, 12, line, COLOR_TEXT, 1);
+
+    if (game.event_log_count > 0) {
+        snprintf(line, sizeof(line), "%s", game.event_log[game.event_log_count - 1]);
+        draw_text(2, 22, line, COLOR_TEXT_DIM, 1);
+    }
     if (has_won()) {
         return;
-    }
-
-    // Progress bar toward the next age
-    int inner_width = BAR_RIGHT - BAR_LEFT - 2;
-    int progress = game.science < age->advance_cost ? game.science : age->advance_cost;
-    m3_frame(BAR_LEFT, 12, BAR_RIGHT, 19, COLOR_TEXT_DIM);
-    m3_rect(BAR_LEFT + 1, 13, BAR_LEFT + 1 + progress * inner_width / age->advance_cost, 18, COLOR_BAR);
-
-    if (can_advance_age()) {
-        draw_text(BAR_RIGHT + 6, 12, "SELECT!", COLOR_CURSOR, 1);
-    } else {
-        snprintf(line, sizeof(line), "%d/%d", game.science, age->advance_cost);
-        draw_text(BAR_RIGHT + 6, 12, line, COLOR_TEXT_DIM, 1);
     }
 }
 
@@ -351,6 +370,152 @@ static void draw_victory(void)
     snprintf(line, sizeof(line), "Reached in %d turns", game.turn);
     draw_text_centered(94, line, COLOR_TEXT_DIM, 1);
     draw_text_centered(108, "B: Main menu", COLOR_TEXT_DIM, 1);
+}
+
+static void draw_management_panel(void)
+{
+    char line[80];
+    int infants = 0;
+    int children = 0;
+    int adults = 0;
+    int elders = 0;
+
+    if (!management_open || game.villager_count <= 0) {
+        return;
+    }
+
+    for (int i = 0; i < game.villager_count; i++) {
+        const Villager *villager = &game.villagers[i];
+        if (!villager->alive) {
+            continue;
+        }
+        switch (villager->life_stage) {
+            case LIFE_STAGE_INFANT: infants++; break;
+            case LIFE_STAGE_CHILD: children++; break;
+            case LIFE_STAGE_ADULT: adults++; break;
+            default: elders++; break;
+        }
+    }
+
+    m3_rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, COLOR_SKY);
+    draw_text_centered(4, "TRIBE ROSTER", COLOR_TITLE, 1);
+
+    snprintf(line, sizeof(line), "Pop %d | Inf %d | Kid %d | Ad %d | Eld %d",
+             game.population, infants, children, adults, elders);
+    draw_text(6, 16, line, COLOR_TEXT, 1);
+
+    Villager *villager = &game.villagers[management_villager_index];
+    snprintf(line, sizeof(line), "V%d | %d yrs | %s | %s",
+             villager->id, villager->age, life_stage_name(villager->life_stage), job_name(villager->job));
+    draw_text(6, 26, line, COLOR_CURSOR, 1);
+
+    int output_food = 0;
+    int output_science = 0;
+    int output_housing = 0;
+    switch (villager->job) {
+        case JOB_FARMER: output_food = 2; break;
+        case JOB_SCIENTIST: output_science = 2; break;
+        case JOB_BUILDER: output_housing = 1; break;
+        case JOB_GATHERER: output_food = 1; break;
+        case JOB_DEFENDER: break;
+        default: break;
+    }
+
+    if (output_food > 0 || output_science > 0 || output_housing > 0) {
+        snprintf(line, sizeof(line), "yield: %+dF %+dS %+dH",
+                 output_food, output_science, output_housing);
+        draw_text(6, 36, line, COLOR_TEXT_DIM, 1);
+    } else if (villager->job == JOB_DEFENDER) {
+        draw_text(6, 36, "yield: defense", COLOR_TEXT_DIM, 1);
+    } else {
+        draw_text(6, 36, "yield: none", COLOR_TEXT_DIM, 1);
+    }
+
+    draw_text(6, 46, "L/R job  A set  B close", COLOR_TEXT_DIM, 1);
+
+    m3_rect(6, 60, SCREEN_WIDTH - 6, 100, COLOR_BUTTON_DISABLED_FILL);
+    draw_text(10, 64, "History:", COLOR_TEXT, 1);
+    if (game.event_log_count == 0) {
+        draw_text(10, 74, "No events yet.", COLOR_TEXT_DIM, 1);
+    } else {
+        for (int i = 0; i < 6 && i < game.event_log_count; i++) {
+            int index = game.event_log_count - 1 - i;
+            draw_text(10, 74 + i * 8, game.event_log[index], COLOR_TEXT_DIM, 1);
+        }
+    }
+
+    snprintf(line, sizeof(line), "%d/%d villagers", management_villager_index + 1, game.villager_count);
+    draw_text(6, SCREEN_HEIGHT - 10, line, COLOR_TEXT_DIM, 1);
+}
+
+static void draw_year_summary(void)
+{
+    char line[80];
+    int top = 38;
+    int left = 20;
+    int right = 220;
+    int bottom = 110;
+
+    if (!year_summary_open) {
+        return;
+    }
+
+    m3_rect(left, top, right, bottom, COLOR_BUTTON_DISABLED_FILL);
+    m3_frame(left, top, right, bottom, COLOR_BUTTON_BORDER);
+
+    draw_text_centered(top + 6, "TRIBE REPORT", COLOR_TITLE, 1);
+    snprintf(line, sizeof(line), "Year %d | Pop %d | Food %d | Sci %d",
+             year_summary_year, game.population, game.food, game.science);
+    draw_text(left + 8, top + 18, line, COLOR_TEXT, 1);
+
+    snprintf(line, sizeof(line), "Born %d | Died %d | Net %+d",
+             game.yearly_births, game.yearly_deaths, game.yearly_population_change);
+    draw_text(left + 8, top + 30, line, COLOR_TITLE, 1);
+
+    if (game.yearly_population_change > 0) {
+        draw_text(left + 8, top + 41, "The tribe is growing.", COLOR_TEXT_DIM, 1);
+    } else if (game.yearly_population_change < 0) {
+        draw_text(left + 8, top + 41, "The tribe is shrinking.", COLOR_TEXT_DIM, 1);
+    } else {
+        draw_text(left + 8, top + 41, "The tribe holds steady.", COLOR_TEXT_DIM, 1);
+    }
+
+    m3_rect(left + 8, top + 52, right - 8, top + 69, COLOR_BUTTON_DISABLED_FILL);
+    draw_text(left + 12, top + 55, "Recent history:", COLOR_TEXT_DIM, 1);
+    for (int i = 0; i < 2 && i < game.event_log_count; i++) {
+        int index = game.event_log_count - 1 - i;
+        draw_text(left + 12, top + 63 + i * 7, game.event_log[index], COLOR_TEXT_DIM, 1);
+    }
+
+    draw_text_centered(bottom - 10, "A/B: Continue", COLOR_CURSOR, 1);
+}
+
+static void cycle_villager_job(int delta)
+{
+    if (game.villager_count <= 0) {
+        return;
+    }
+
+    int next = game.villagers[management_villager_index].job + delta;
+    if (next < JOB_NONE) {
+        next = JOB_DEFENDER;
+    }
+    if (next > JOB_DEFENDER) {
+        next = JOB_NONE;
+    }
+    game.villagers[management_villager_index].job = next;
+}
+
+static void open_management_panel(void)
+{
+    if (game.pending_event != NO_EVENT || game.villager_count <= 0) {
+        return;
+    }
+    management_open = true;
+    management_villager_index = 0;
+    m3_fill(COLOR_SKY);
+    draw_management_panel();
+    draw_message();
 }
 
 // Writes an option like "A: Welcome them (-10F +2P)"
@@ -499,6 +664,12 @@ static void finish_turn(void)
     draw_offers();
     draw_message();
 
+    if ((game.turn - 1) % SEASON_LENGTH == 0) {
+        year_summary_year = (game.turn - 1) / SEASON_LENGTH + 1;
+        year_summary_open = true;
+        draw_year_summary();
+    }
+
     if (game.pending_event != NO_EVENT) {
         draw_event();
     }
@@ -538,6 +709,8 @@ void game_start(void)
     message = NULL;
 
     m3_fill(COLOR_SKY);
+    year_summary_open = false;
+    year_summary_year = 0;
     draw_status();
     draw_map();
     draw_message();
@@ -554,6 +727,18 @@ Screen game_update(void)
         return key_hit(KEY_B) ? SCREEN_MENU : SCREEN_GAME;
     }
 
+    if (year_summary_open) {
+        if (key_hit(KEY_A) || key_hit(KEY_B)) {
+            year_summary_open = false;
+            draw_status();
+            draw_map();
+            draw_offers();
+            draw_message();
+        }
+        draw_year_summary();
+        return SCREEN_GAME;
+    }
+
     // While an event is open, A and B pick an option and nothing else works
     if (game.pending_event != NO_EVENT) {
         if (key_hit(KEY_A)) {
@@ -564,9 +749,59 @@ Screen game_update(void)
         return SCREEN_GAME;
     }
 
+    if (management_open) {
+        bool changed = false;
+
+        if (key_hit(KEY_UP)) {
+            management_villager_index = (management_villager_index + game.villager_count - 1) % game.villager_count;
+            changed = true;
+        }
+        if (key_hit(KEY_DOWN)) {
+            management_villager_index = (management_villager_index + 1) % game.villager_count;
+            changed = true;
+        }
+        if (key_hit(KEY_L)) {
+            cycle_villager_job(-1);
+            changed = true;
+        }
+        if (key_hit(KEY_R)) {
+            cycle_villager_job(1);
+            changed = true;
+        }
+        if (key_hit(KEY_A)) {
+            cycle_villager_job(1);
+            changed = true;
+        }
+        if (key_hit(KEY_B)) {
+            management_open = false;
+            draw_status();
+            draw_map();
+            draw_offers();
+            draw_message();
+            return SCREEN_GAME;
+        }
+
+        if (changed) {
+            m3_fill(COLOR_SKY);
+            draw_management_panel();
+            draw_message();
+        }
+        return SCREEN_GAME;
+    }
+
     frame_count++;
     if (frame_count % ANIMATION_SPEED == 0) {
         animate_tiles();
+    }
+
+    if (key_hit(KEY_SELECT) && !can_advance_age()) {
+        open_management_panel();
+        if (management_open) {
+            m3_fill(COLOR_SKY);
+            draw_management_panel();
+            draw_message();
+        }
+        return SCREEN_GAME;
     }
 
     if (key_hit(KEY_DIR)) {

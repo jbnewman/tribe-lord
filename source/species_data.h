@@ -18,6 +18,14 @@ typedef struct {
     int population_bonus;
 } Trait;
 
+typedef enum {
+    LIFE_STAGE_INFANT = 0,
+    LIFE_STAGE_CHILD,
+    LIFE_STAGE_ADULT,
+    LIFE_STAGE_ELDER,
+    LIFE_STAGE_COUNT
+} LifeStage;
+
 // Unused trait and palette slots are left empty, which marks the end of each list.
 typedef struct {
     const char *name;
@@ -25,6 +33,14 @@ typedef struct {
     int start_population;
     int start_food;
     int start_science;
+    int avg_lifespan;
+    int childhood_age;
+    int adult_age;
+    int elder_age;
+    int fertility_start_age;
+    int fertility_end_age;
+    int fertility_peak_age;
+    int fertility_cap;
     Trait traits[MAX_TRAITS];
     PaletteEntry palette[MAX_PALETTE];
     const char *sprite[SPECIES_SPRITE_HEIGHT];

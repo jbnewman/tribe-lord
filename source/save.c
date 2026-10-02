@@ -4,7 +4,7 @@
 #include "game_state.h"
 
 #define SAVE_MAGIC   0x44524C54     // "TLRD" marks memory written by this game
-#define SAVE_VERSION 2              // bump when GameState changes so old saves are ignored
+#define SAVE_VERSION 3              // bump when GameState changes so old saves are ignored
 
 // SRAM can only be read and written one byte at a time
 #define SAVE_MEMORY ((volatile u8 *)0x0E000000)
