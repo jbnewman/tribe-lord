@@ -9,6 +9,8 @@
 
 static void start_screen(Screen screen)
 {
+    m3_fill(0);
+
     switch (screen) {
         case SCREEN_MENU:     menu_start();     break;
         case SCREEN_NEW_GAME: new_game_start(); break;
