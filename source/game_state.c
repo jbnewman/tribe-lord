@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdio.h>
 #include "game_state.h"
 #include "ages.h"
 #include "events.h"
@@ -9,6 +10,298 @@
 
 GameState game;
 int chosen_species = 0;
+static char yearly_message[96];
+
+static int villager_age_stage_for_age(int age, const Species *species)
+{
+    if (age < species->childhood_age) {
+        return LIFE_STAGE_INFANT;
+    }
+    if (age < species->adult_age) {
+        return LIFE_STAGE_CHILD;
+    }
+    if (age < species->elder_age) {
+        return LIFE_STAGE_ADULT;
+    }
+    return LIFE_STAGE_ELDER;
+}
+
+int villager_life_stage_for_age(int age, const Species *species)
+{
+    return villager_age_stage_for_age(age, species);
+}
+
+static void set_villager_defaults(Villager *villager, int id, int age, int gender)
+{
+    const Species *species = &SPECIES[chosen_species];
+    villager->id = id;
+    villager->age = age;
+    villager->gender = gender;
+    villager->job = JOB_NONE;
+    villager->alive = true;
+    villager->life_stage = villager_age_stage_for_age(age, species);
+    villager->fertility = species->fertility_cap / 2 + random_range(0, species->fertility_cap / 2);
+    villager->hardiness = 45 + random_range(0, 55);
+}
+
+void log_event(const char *text)
+{
+    if (game.event_log_count >= MAX_EVENT_LOG) {
+        memmove(game.event_log[0], game.event_log[1], (MAX_EVENT_LOG - 1) * sizeof(game.event_log[0]));
+        game.event_log_count = MAX_EVENT_LOG - 1;
+    }
+
+    snprintf(game.event_log[game.event_log_count], sizeof(game.event_log[0]), "%s", text);
+    game.event_log_count++;
+}
+
+void game_init_villagers(void)
+{
+    const Species *species = &SPECIES[chosen_species];
+    game.villager_count = 0;
+    game.event_log_count = 0;
+    game.yearly_births = 0;
+    game.yearly_deaths = 0;
+    game.yearly_population_change = 0;
+
+    for (int i = 0; i < game.population && i < MAX_VILLAGERS; i++) {
+        Villager *villager = &game.villagers[i];
+        int age = species->adult_age - 5 + random_range(0, 10);
+        set_villager_defaults(villager, i + 1, age, random_range(0, 3));
+        game.villager_count++;
+    }
+}
+
+void age_villagers(int years)
+{
+    const Species *species = &SPECIES[chosen_species];
+
+    for (int i = 0; i < game.villager_count; i++) {
+        Villager *villager = &game.villagers[i];
+        if (!villager->alive) {
+            continue;
+        }
+
+        villager->age += years;
+        villager->life_stage = villager_age_stage_for_age(villager->age, species);
+
+        if (villager->life_stage == LIFE_STAGE_ADULT) {
+            villager->fertility = species->fertility_cap / 2 + random_range(0, species->fertility_cap / 2);
+        } else if (villager->life_stage == LIFE_STAGE_ELDER) {
+            villager->fertility /= 2;
+        }
+    }
+}
+
+static int villager_fertility_chance(const Villager *villager, const Species *species)
+{
+    if (villager->gender != VILLAGER_GENDER_FEMALE || !villager->alive) {
+        return 0;
+    }
+
+    if (villager->age < species->fertility_start_age || villager->age > species->fertility_end_age) {
+        return 0;
+    }
+
+    int peak = species->fertility_peak_age;
+    int distance = villager->age > peak ? villager->age - peak : peak - villager->age;
+    int chance = 12 - distance;
+    if (chance < 1) {
+        chance = 1;
+    }
+    if (chance > 18) {
+        chance = 18;
+    }
+
+    chance = chance * (villager->fertility + 10) / 28;
+    if (chance < 1) {
+        chance = 1;
+    }
+    if (chance > 18) {
+        chance = 18;
+    }
+    return chance;
+}
+
+static void refresh_villager_count(void)
+{
+    int alive_count = 0;
+    for (int i = 0; i < game.villager_count; i++) {
+        if (game.villagers[i].alive) {
+            alive_count++;
+        }
+    }
+    game.population = alive_count;
+    game.villager_count = alive_count;
+}
+
+static int job_count(int target_job)
+{
+    int count = 0;
+    for (int i = 0; i < game.villager_count; i++) {
+        if (game.villagers[i].alive && game.villagers[i].job == target_job) {
+            count++;
+        }
+    }
+    return count;
+}
+
+static int job_food_bonus(void)
+{
+    return job_count(JOB_FARMER) * 2 + job_count(JOB_GATHERER);
+}
+
+static int job_science_bonus(void)
+{
+    return job_count(JOB_SCIENTIST) * 2 + job_count(JOB_BUILDER);
+}
+
+static int job_housing_bonus(void)
+{
+    return job_count(JOB_BUILDER);
+}
+
+static void add_new_villager(void)
+{
+    const Species *species = &SPECIES[chosen_species];
+
+    if (game.villager_count >= MAX_VILLAGERS) {
+        return;
+    }
+
+    Villager *villager = &game.villagers[game.villager_count];
+    set_villager_defaults(villager, game.villager_count + 1, 0, random_range(0, 3));
+    villager->life_stage = LIFE_STAGE_INFANT;
+    villager->age = 0;
+    villager->fertility = species->fertility_cap / 2 + random_range(0, species->fertility_cap / 2);
+    game.villager_count++;
+    game.population++;
+}
+
+static void process_yearly_births(void)
+{
+    const Species *species = &SPECIES[chosen_species];
+    int births = 0;
+    game.yearly_births = 0;
+
+    for (int i = 0; i < game.villager_count; i++) {
+        Villager *villager = &game.villagers[i];
+        if (!villager->alive) {
+            continue;
+        }
+
+        int chance = villager_fertility_chance(villager, species);
+        if (chance > 0 && random_range(0, 100) < chance) {
+            add_new_villager();
+            births++;
+        }
+    }
+
+    game.yearly_births = births;
+    if (births > 0) {
+        snprintf(yearly_message, sizeof(yearly_message), "%d newborns join the tribe!", births);
+        log_event(yearly_message);
+    }
+}
+
+static int villager_mortality_chance(const Villager *villager, const Species *species)
+{
+    if (!villager->alive) {
+        return 0;
+    }
+
+    if (villager->age < species->adult_age) {
+        return 0;
+    }
+
+    int chance = 1;
+    if (villager->age >= species->elder_age) {
+        chance = (villager->age - species->elder_age) * 3 + 4;
+    }
+
+    if (villager->age >= species->avg_lifespan) {
+        chance += 8;
+    }
+
+    chance -= villager->hardiness / 18;
+    if (chance < 0) {
+        chance = 0;
+    }
+    if (job_count(JOB_DEFENDER) > 0 && villager->job == JOB_DEFENDER) {
+        chance -= 2;
+        if (chance < 0) {
+            chance = 0;
+        }
+    }
+    if (chance > 100) {
+        chance = 100;
+    }
+    return chance;
+}
+
+static void process_yearly_deaths(void)
+{
+    const Species *species = &SPECIES[chosen_species];
+    int deaths = 0;
+    game.yearly_deaths = 0;
+
+    for (int i = 0; i < game.villager_count; i++) {
+        Villager *villager = &game.villagers[i];
+        if (!villager->alive) {
+            continue;
+        }
+
+        int chance = villager_mortality_chance(villager, species);
+        if (chance > 0 && random_range(0, 100) < chance) {
+            villager->alive = false;
+            deaths++;
+        }
+    }
+
+    game.yearly_deaths = deaths;
+    if (deaths > 0) {
+        snprintf(yearly_message, sizeof(yearly_message), "%d villagers died this year!", deaths);
+        log_event(yearly_message);
+        refresh_villager_count();
+    }
+}
+
+static void process_yearly_village_update(void)
+{
+    const Species *species = &SPECIES[chosen_species];
+    int age_events = 0;
+    game.yearly_births = 0;
+    game.yearly_deaths = 0;
+    game.yearly_population_change = 0;
+
+    for (int i = 0; i < game.villager_count; i++) {
+        Villager *villager = &game.villagers[i];
+        if (!villager->alive) {
+            continue;
+        }
+
+        int old_stage = villager->life_stage;
+        villager->age += 1;
+        villager->life_stage = villager_age_stage_for_age(villager->age, species);
+        if (old_stage != villager->life_stage) {
+            age_events++;
+        }
+    }
+
+    process_yearly_births();
+    process_yearly_deaths();
+    game.yearly_population_change = game.yearly_births - game.yearly_deaths;
+
+    if (game.event_log_count > 0) {
+        snprintf(yearly_message, sizeof(yearly_message), "%s", game.event_log[game.event_log_count - 1]);
+    } else if (age_events > 0) {
+        snprintf(yearly_message, sizeof(yearly_message), "%d villagers reached a new life stage.", age_events);
+        log_event(yearly_message);
+    } else {
+        snprintf(yearly_message, sizeof(yearly_message), "The tribe ages another year.");
+        log_event(yearly_message);
+    }
+}
 
 // Hex neighbors as { row, col } steps. Odd rows sit half a hex to the right, so they differ.
 static const int NEIGHBORS_EVEN_ROW[6][2] = { { 0, -1 }, { 0, 1 }, { -1, -1 }, { -1, 0 }, { 1, -1 }, { 1, 0 } };
@@ -106,27 +399,27 @@ int food_upkeep(void)
 // Food grown minus food eaten, so it can be negative. Winter halves what is grown.
 int food_income(void)
 {
-    int grown = with_bonus(map_yields().food, game.food_bonus);
+    int grown = with_bonus(map_yields().food, game.food_bonus) + job_food_bonus();
     if (is_winter()) {
         grown /= 2;
     }
     return grown - food_upkeep();
 }
 
-// Every two workers also come up with one science
+// Workers turn raw science into output, with a minor boost from job assignments.
 int science_income(void)
 {
-    return with_bonus(map_yields().science + game.population / 2, game.science_bonus);
+    return with_bonus(map_yields().science + game.population / 2, game.science_bonus) + job_science_bonus();
 }
 
 int housing(void)
 {
-    return map_yields().housing;
+    return map_yields().housing + job_housing_bonus();
 }
 
 int growth_needed(void)
 {
-    return 5 + game.population * 2;
+    return 6 + game.population * 2;
 }
 
 static void add_to_deck(TileId tile, int copies)
@@ -218,7 +511,10 @@ void game_new(void)
 
     game.map[VILLAGE_ROW][VILLAGE_COL] = TILE_VILLAGE;
     game.pending_event = NO_EVENT;
+    game.villager_count = 0;
     generate_terrain();
+    game_init_villagers();
+    log_event("The tribe settles into the valley.");
     unlock_age_tiles(0);
     deal_offers();
 }
@@ -308,6 +604,7 @@ const char *end_turn(void)
         game.growth = 0;
         if (game.population > 1) {
             game.population--;
+            refresh_villager_count();
             message = "Starvation! A worker was lost.";
         }
     } else if (food_change > 0 && game.population < housing()) {
@@ -316,6 +613,7 @@ const char *end_turn(void)
         if (game.growth >= growth_needed()) {
             game.growth -= growth_needed();
             game.population++;
+            add_new_villager();
             message = "A new worker joins the tribe!";
         }
     }
@@ -326,6 +624,12 @@ const char *end_turn(void)
     }
 
     game.turn++;
+    if ((game.turn - 1) % SEASON_LENGTH == 0) {
+        process_yearly_village_update();
+        if (message == NULL) {
+            message = yearly_message;
+        }
+    }
     deal_offers();
     return message;
 }

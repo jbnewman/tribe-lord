@@ -3,4 +3,5 @@ build/
 *.gba
 *.map
 *.sav
+*.env
 emulator/mgba/

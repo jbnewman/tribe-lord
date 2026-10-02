@@ -7,6 +7,7 @@
 
 #define BUTTON_NEW_GAME 0
 #define BUTTON_CONTINUE 1
+#define BUTTON_INFO     2
 
 #define STAR_COUNT    50
 #define PLANET_X      120
@@ -37,6 +38,7 @@ static Star stars[STAR_COUNT];
 static int frame;
 static bool has_save;
 static int selected_button;
+static bool info_open;
 
 // Blends two colors: step 0 gives a, step == steps gives b
 static COLOR mix_colors(COLOR a, COLOR b, int step, int steps)
@@ -162,13 +164,40 @@ static void draw_button(int y, const char *label, bool enabled, bool selected)
 
 static void draw_buttons(void)
 {
-    draw_button(88, "NEW GAME", true, selected_button == BUTTON_NEW_GAME);
-    draw_button(110, "CONTINUE", has_save, selected_button == BUTTON_CONTINUE);
+    draw_button(80, "NEW GAME", true, selected_button == BUTTON_NEW_GAME);
+    draw_button(98, "CONTINUE", has_save, selected_button == BUTTON_CONTINUE);
+    draw_button(116, "INFO", true, selected_button == BUTTON_INFO);
+}
+
+static void draw_info_page(void)
+{
+    m3_fill(COLOR_SKY);
+    draw_text_centered(4, "TRIBE INFO", COLOR_TITLE, 1);
+
+    draw_text(8, 18, "Systems:", COLOR_TEXT, 1);
+    draw_text(8, 28, "Food = growth", COLOR_TEXT_DIM, 1);
+    draw_text(8, 36, "Science = ages", COLOR_TEXT_DIM, 1);
+    draw_text(8, 44, "Housing = room", COLOR_TEXT_DIM, 1);
+    draw_text(8, 52, "Winter cuts harvest.", COLOR_TEXT_DIM, 1);
+
+    draw_text(8, 64, "Races:", COLOR_TEXT, 1);
+    draw_text(8, 74, "Humanoid: balanced.", COLOR_TEXT_DIM, 1);
+    draw_text(8, 82, "Insectoid: fast births.", COLOR_TEXT_DIM, 1);
+    draw_text(8, 90, "Reptilian: slow life.", COLOR_TEXT_DIM, 1);
+
+    draw_text(8, 102, "Jobs:", COLOR_TEXT, 1);
+    draw_text(8, 112, "Farmer +food", COLOR_TEXT_DIM, 1);
+    draw_text(8, 120, "Scientist +science", COLOR_TEXT_DIM, 1);
+    draw_text(8, 128, "Builder +housing", COLOR_TEXT_DIM, 1);
+    draw_text(8, 136, "Defender +survival", COLOR_TEXT_DIM, 1);
+
+    draw_text_centered(148, "B: Back", COLOR_TITLE, 1);
 }
 
 void menu_start(void)
 {
     frame = 0;
+    info_open = false;
 
     draw_sky();
     create_stars();
@@ -177,7 +206,6 @@ void menu_start(void)
     draw_ship();
     draw_ship_lights(0);
 
-    // Drop shadow first, then the title on top of it
     draw_text(34, 43, "TRIBE LORD", COLOR_TEXT_SHADOW, 3);
     draw_text(31, 40, "TRIBE LORD", COLOR_TITLE, 3);
     draw_text_centered(70, "Guide your tribe to the stars", COLOR_TEXT, 1);
@@ -186,11 +214,19 @@ void menu_start(void)
     selected_button = has_save ? BUTTON_CONTINUE : BUTTON_NEW_GAME;
     draw_buttons();
 
-    draw_text(2, 151, "v0.1", COLOR_TEXT_DIM, 1);
+    draw_text(2, 151, GAME_VERSION, COLOR_TEXT_DIM, 1);
 }
 
 Screen menu_update(void)
 {
+    if (info_open) {
+        if (key_hit(KEY_A) || key_hit(KEY_B)) {
+            menu_start();
+            return SCREEN_MENU;
+        }
+        return SCREEN_MENU;
+    }
+
     frame++;
 
     if (frame % 6 == 0) {
@@ -204,7 +240,10 @@ Screen menu_update(void)
     }
 
     if (has_save && key_hit(KEY_UP | KEY_DOWN)) {
-        selected_button = selected_button == BUTTON_NEW_GAME ? BUTTON_CONTINUE : BUTTON_NEW_GAME;
+        selected_button = (selected_button + 1) % 3;
+        if (selected_button == BUTTON_CONTINUE && !has_save) {
+            selected_button = BUTTON_NEW_GAME;
+        }
         draw_buttons();
     }
 
@@ -212,7 +251,14 @@ Screen menu_update(void)
         if (selected_button == BUTTON_CONTINUE && load_game()) {
             return SCREEN_GAME;
         }
-        return SCREEN_NEW_GAME;
+        if (selected_button == BUTTON_NEW_GAME) {
+            return SCREEN_NEW_GAME;
+        }
+        if (selected_button == BUTTON_INFO) {
+            info_open = true;
+            draw_info_page();
+            return SCREEN_MENU;
+        }
     }
     return SCREEN_MENU;
 }

@@ -4,6 +4,8 @@
 
 #include <tonc.h>
 
+#define GAME_VERSION "v0.2.0"
+
 // Converts a web-style 0xRRGGBB color into the GBA's 15-bit color (5 bits each for red, green, blue).
 #define HEX_COLOR(hex) ((((hex) >> 19) & 31) | ((((hex) >> 11) & 31) << 5) | ((((hex) >> 3) & 31) << 10))
 
